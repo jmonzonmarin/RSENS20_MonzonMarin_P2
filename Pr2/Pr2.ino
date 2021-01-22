@@ -3,17 +3,24 @@
 
 #define    MPU9250_ADDRESS            0x68    //Direccion del MPU
 #define    GYRO_FULL_SCALE_2000_DPS   0x18    //Escala del giroscopo de 2000º/s
-#define    ACC_FULL_SCALE_16_G        0x18    //Escala del acelerometro de +/-16g
+#define    ACC_FULL_SCALE_2_G         0x00    //Escala del acelerometro de +/-16g
+#define    A_R         ((32768.0/2.0)/9.8)
 
 int16_t aX, aY, aZ, gX, gY, gZ, aX_offset, aY_offset, aZ_offset, gX_offset, gY_offset, gZ_offset;
 
-int periodoHolaMundo = 1000; 
-int prioridadMundo = 1; 
+int periodoDatos = 100; 
+int prioridadDatos = 1; 
 
 int periodoLed = 200;
 int prioridadLed = 2;
 
-int led = 12;
+int pinLed = 12;
+int contadorDatos = 0;
+
+int pinSCL = 22;
+int pinSDA = 21;
+
+boolean led = false;
 
 void I2Cread(uint8_t Address, uint8_t Register, uint8_t Nbytes, uint8_t* Data)
 {
@@ -40,37 +47,63 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
-  Wire.begin();
-  I2CwriteByte(MPU9250_ADDRESS, 28, ACC_FULL_SCALE_16_G);
+  Wire.begin(pinSDA, pinSCL);
+  I2CwriteByte(MPU9250_ADDRESS, 28, ACC_FULL_SCALE_2_G);
   I2CwriteByte(MPU9250_ADDRESS, 27, GYRO_FULL_SCALE_2000_DPS);
   
   
-  xTaskCreate(holaMundo,"task1",1000,NULL,prioridadMundo,NULL);   //Nombre de la función, Nombre descriptivo para la tarea 1, este valor indica el numero de palabras que el stack puede soportar, Parametros de entrada de la función, Prioridad de la función (mayor cuanto mayor sea el número), __ 
+  xTaskCreate(recogeDatos,"task1",1000,NULL,prioridadDatos,NULL);   //Nombre de la función, Nombre descriptivo para la tarea 1, este valor indica el numero de palabras que el stack puede soportar, Parametros de entrada de la función, Prioridad de la función (mayor cuanto mayor sea el número), __ 
   xTaskCreate(ledMode,"task2",1000,NULL,prioridadLed,NULL);  
   //vTaskStartScheduler();
 }
 
 void loop() {
-//  while (1){
-//    // put your main code here, to run repeatedly:
-//  }
-    //delay(1000);
 
 }
 
-void holaMundo(void *pvParameters){         //declaro la tarea 1
+void recogeDatos(void *pvParameters){         //declaro la tarea 1
   while (1){
-    Serial.println("Hola mundo");
-    vTaskDelay (periodoHolaMundo);
+    uint8_t aceleracion[6];
+    I2Cread(MPU9250_ADDRESS, 0x3B, 6, aceleracion);
+      aX = (aceleracion[0] << 8 | aceleracion[1])/A_R; //  - aX_offset;
+      aY = (aceleracion[2] << 8 | aceleracion[3])/A_R; //  - aY_offset;
+      aZ = (aceleracion[4] << 8 | aceleracion[5])/A_R; //  - aZ_offset;
+      
+    uint8_t giroscopo[6];
+    I2Cread(MPU9250_ADDRESS, 0x43, 6, giroscopo);
+      gX =  (giroscopo[0] << 8 | giroscopo[1]); // - gX_offset;
+      gY =  (giroscopo[2] << 8 | giroscopo[3]); // - gX_offset;
+      gZ =  (giroscopo[4] << 8 | giroscopo[5]); // - gX_offset;
+    vTaskDelay (periodoDatos);
+    contadorDatos++;
+    if (contadorDatos == 10){
+      Serial.print(aX,DEC);
+      Serial.print(";");
+      Serial.print(aY,DEC);
+      Serial.print(";");
+      Serial.print(aZ,DEC);
+      Serial.print(";");
+      Serial.print(gX,DEC);
+      Serial.print(";");
+      Serial.print(gY,DEC);
+      Serial.print(";");
+      Serial.println(gZ,DEC);
+      contadorDatos = 0;
+      led = true;
+    }
   }
 }
   
 void ledMode(void *pvParameters){         //declaro la tarea 2
-  pinMode(led, OUTPUT); 
+  pinMode(pinLed, OUTPUT); 
   while(1) {
-    digitalWrite(led, HIGH); 
-    vTaskDelay (periodoLed);              //¿Este delay hace que se dejen de ejecutar el resto de tareas?
-    digitalWrite(led, LOW); 
-    vTaskDelay (periodoLed);
+    if (led){
+      digitalWrite(led, HIGH); 
+      vTaskDelay (periodoLed);              //¿Este delay hace que se dejen de ejecutar el resto de tareas?
+      digitalWrite(led, LOW); 
+      vTaskDelay (periodoLed);
+      Serial.println("Tarea LED");
+      led = false;
+    }
   }
 }
